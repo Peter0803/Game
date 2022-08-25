@@ -1,0 +1,404 @@
+import pygame
+import random
+import os
+
+FPS = 10
+TITLE = "The First Game"
+WIDTH = 600; LENGTH = 600
+WHITE = (255, 255, 255); BLUE = (0, 0, 255); GREEN = (0, 255, 0); YELLOW = (255, 255, 0); BLACK = (0, 0, 0)
+
+#initialize the game and the music
+pygame.init()
+pygame.mixer.init()
+
+#set the length, width of the window
+window = pygame.display.set_mode((WIDTH, LENGTH))
+
+#set the icon of the window
+pygame.display.set_icon(player_mini_image)
+
+#load the images
+background_image = pygame.image.load(os.path.join('Images', 'background.png')).convert()
+bullet_image = pygame.image.load(os.path.join('Images', 'bullet.png')).convert()
+player_image = pygame.image.load(os.path.join('Images', 'player.png')).convert()
+player_mini_image = pygame.transform.scale(player_image,(30, 18)); player_mini_image.set_colorkey(BLACK)
+rock_images = [
+    pygame.image.load(os.path.join('Images', f'rock{i}.png')).convert() for i in range(7)
+]
+expl_anim = {}
+for item in ['large', 'small', 'player'] :
+    expl_anim[item] = [
+        pygame.transform.scale(
+        pygame.image.load(
+            os.path.join('Images/images_expl/rock_expl', 
+                        f'expl{i}.png')).convert(),
+                                      (90, 90) if item == 'large' else (60, 60)) 
+        if item != 'player' else 
+        pygame.image.load(
+            os.path.join(f'Images/images_expl/{item}_expl',
+                         f'expl{i}.png')).convert() 
+        for i in range(9)
+    ]
+treasure_images = {} 
+for item in ['shield', 'gun'] :
+    treasure_images[item] = pygame.image.load(os.path.join('Images', f'{item}.png')).convert()
+
+#load the music
+shoot_sound = pygame.mixer.Sound(os.path.join('Sounds', 'shoot.wav'))
+expl_sounds = [
+    pygame.mixer.Sound(os.path.join('Sounds', 'expl0.wav')),
+    pygame.mixer.Sound(os.path.join('Sounds', 'expl1.wav'))
+]
+shield_sound = pygame.mixer.Sound(os.path.join('Sounds', 'shield_sound.wav'))
+gun_sound = pygame.mixer.Sound(os.path.join('Sounds', 'gun_sound.wav'))
+death_sound = pygame.mixer.Sound(os.path.join('Sounds', 'rumble.ogg'))
+pygame.mixer.music.load(os.path.join('Sounds', 'background.ogg'))
+pygame.mixer.music.set_volume(.1)
+pygame.mixer.music.play(-1)
+
+#set the title of the window
+pygame.display.set_caption(TITLE)
+
+#set the limit of the frames per second that any computer can run
+clock = pygame.time.Clock()
+
+#set the score
+score = 0
+
+#get the font
+font_name1 = pygame.font.match_font('times new roman')
+font_name2 = pygame.font.match_font('DFKai-SB')
+
+#define the function of words displayed
+def draw_text(surf, font_name, text, size, x, y) :
+    font = pygame.font.Font(font_name, size)
+    text_surface = font.render(text, True, WHITE)
+    text_rect = text_surface.get_rect()
+    text_rect.centerx = x
+    text_rect.top = y
+    surf.blit(text_surface, text_rect)
+
+#defint the function of initial display
+def draw_init() :
+    window.blit(background_image, (0, 0))
+    draw_text(window, font_name1, 'Welcome!', 60, WIDTH / 2, LENGTH / 9)
+    draw_text(window, font_name2, '太空生存戰', 65, WIDTH / 2, LENGTH / 3)
+    draw_text(window, font_name2, '← →控制飛船 空白鍵發射飛彈', 30, WIDTH / 2, LENGTH / 2)
+    draw_text(window, font_name2, '按任意鍵開始', 30, WIDTH / 2, LENGTH / 4 * 3)
+    pygame.display.update()
+    waiting = True
+    while waiting :
+        clock.tick(FPS)
+        for event in pygame.event.get() :
+            if event.type == pygame.QUIT :
+                pygame.quit()
+                return True
+            elif event.type == pygame.KEYUP : 
+                waiting = False
+                return False
+                    
+    
+#define the function of display HP
+def draw_HP(surf, hp, x, y) :
+    BAR_LENGTH = 100
+    BAR_HEIGHT = 10
+    fill = (hp / 100) * BAR_LENGTH
+    outline_rect = pygame.Rect(x, y, BAR_LENGTH, BAR_HEIGHT)
+    fill_rect = pygame.Rect(x, y, fill, BAR_HEIGHT)
+    pygame.draw.rect(surf, WHITE, outline_rect, 2)
+    pygame.draw.rect(surf, GREEN, fill_rect)
+
+#define the function of draw mini player
+def draw_lives(surf, lives, img, x, y) :
+    for i in range(lives) :
+        img_rect = img.get_rect()
+        img_rect.x = x + 45 * i
+        img_rect.y = y
+        surf.blit(img, img_rect)
+        
+# define the function of generating new rock
+def new_rock() :
+    rock = Rock()
+    All_Sprites.add(rock)
+    rocks.add(rock)
+
+#set class in the game
+class Player(pygame.sprite.Sprite) :
+    
+    #set the size, the coordinate of the image
+    def __init__(self) :
+        pygame.sprite.Sprite.__init__(self)
+        self.image = pygame.transform.scale(player_image, (49.5, 37.5))
+        self.image.set_colorkey(BLACK)
+        self.rect = self.image.get_rect()
+        self.radius  = self.rect.width / 2
+        self.rect.x = WIDTH / 2
+        self.rect.bottom = LENGTH - 15
+        self.speedx = 45
+        self.HP = 100
+        self.lives = 3
+        self.hidden = False
+        self.hide_time = 0
+        self.gun = 1
+        self.guntime = 0
+
+    def update(self) :
+        now = pygame.time.get_ticks()
+        
+        if self.gun == 2 and now - self.guntime > 3000 :
+            self.gun -= 1
+            self.guntime = now
+        elif self.gun >= 3 and now - self.guntime > 1500 :
+            self.gun -= 2
+            self.guntime = now
+        if self.hidden and now - self.hide_time > 1000 :
+            self.hidden = False
+            self.rect.x = WIDTH / 2
+            self.rect.bottom = LENGTH - 15
+        
+        #get the key that is pressed and control the object
+        key_pressed = pygame.key.get_pressed()
+        if  key_pressed[pygame.K_RIGHT] :
+            self.rect.right += self.speedx
+        if  key_pressed[pygame.K_LEFT] :
+            self.rect.left -= self.speedx
+        
+        #set the limit of coordination that the object can have
+        if  self.rect.right > WIDTH :
+            self.rect.right = WIDTH
+        if  self.rect.left < 0 :
+            self.rect.left = 0
+    
+    #define the function of shooting
+    def shoot(self):
+        if not(self.hidden) :
+            if self.gun == 1 :
+                bullet = Bullet(self.rect.centerx, self.rect.top)
+                All_Sprites.add(bullet)
+                bullets.add(bullet)
+                shoot_sound.play()
+            elif self.gun == 2 :
+                bullet1 = Bullet(self.rect.right, self.rect.y)
+                bullet2 = Bullet(self.rect.left, self.rect.y)
+                All_Sprites.add(bullet1)
+                All_Sprites.add(bullet2)
+                bullets.add(bullet1)
+                bullets.add(bullet2)
+                shoot_sound.play()
+            elif self.gun >= 3 :
+                bullet1 = Bullet(self.rect.right, self.rect.y)
+                bullet2 = Bullet(self.rect.left, self.rect.y)
+                bullet3 = Bullet(self.rect.centerx, self.rect.top)
+                All_Sprites.add(bullet1)
+                All_Sprites.add(bullet2)
+                All_Sprites.add(bullet3)
+                bullets.add(bullet1)
+                bullets.add(bullet2)
+                bullets.add(bullet3)
+                shoot_sound.play()
+    
+    #define the function of hiding after the death of player
+    def hide(self) :
+        self.hidden = True
+        self.hide_time = pygame.time.get_ticks()
+        self.rect.center = (WIDTH / 2, LENGTH + 500)
+    
+    #define the function of the bullets that player can shoot one time
+    def gunup(self) :
+        self.gun += 1
+        self.guntime = pygame.time.get_ticks()
+
+class Rock(pygame.sprite.Sprite) :
+    
+    #set the size, the coordinate of the image
+    def __init__(self) :
+        pygame.sprite.Sprite.__init__(self)
+        self.image_origin = random.choice(rock_images)
+        self.image_origin.set_colorkey(BLACK)
+        self.image = self.image_origin.copy()
+        self.rect = self.image.get_rect()
+        self.radius  = int(self.rect.width * .9 / 2)
+        self.rect.x = random.randrange(0, WIDTH - self.rect.width)
+        self.rect.y = random.randrange(-300, -100)
+        self.speedx = random.randrange(-15, 15)
+        self.speedy = random.randrange(15, 45)
+        self.total_degree = 0
+        self.rotate_degree = random.randrange(-30, 30)
+    
+    #let the object rotate
+    def rotate(self) :
+        self.total_degree += self.rotate_degree
+        self.total_degree %= 360
+        self.image = pygame.transform.rotate(self.image_origin, self.total_degree)
+        center = self.rect.center
+        self.rect = self.image.get_rect()
+        self.rect.center = center
+
+    def update(self) :
+        self.rotate()
+        self.rect.x += self.speedx
+        self.rect.y += self.speedy
+        
+        if self.rect.bottom > LENGTH or self.rect.right < 0 or self.rect.left > WIDTH :
+            self.rect.x = random.randrange(0, WIDTH - self.rect.width)
+            self.rect.y = random.randrange(-100, -50)
+            self.speedx = random.randrange(-15, 15)
+            self.speedy = random.randrange(15, 45)
+
+class Bullet(pygame.sprite.Sprite) :
+    
+    #set the size, the coordinate of the image
+    def __init__(self, x, y) :
+        pygame.sprite.Sprite.__init__(self)
+        self.image = bullet_image
+        self.image.set_colorkey(BLACK)
+        self.rect = self.image.get_rect()
+        self.rect.centerx = x
+        self.rect.bottom = y
+        self.speedy = -60
+    
+    def update(self):
+        self.rect.y += self.speedy
+        if self.rect.bottom < 0 :
+            self.kill()
+
+class Treasure(pygame.sprite.Sprite) :
+    
+    #set the size, the coordinate of the image
+    def __init__(self, center) :
+        pygame.sprite.Sprite.__init__(self)
+        self.type = random.choice(list(treasure_images.keys()))
+        self.image = treasure_images[self.type]
+        self.image.set_colorkey(BLACK)
+        self.rect = self.image.get_rect()
+        self.rect.center = center
+        self.speedy = 30
+    
+    def update(self):
+        self.rect.y += self.speedy
+        if self.rect.top > LENGTH :
+            self.kill()
+
+class Explosion(pygame.sprite.Sprite) :
+    
+    #set the size, the coordinate of the image
+    def __init__(self, center, size) :
+        pygame.sprite.Sprite.__init__(self)
+        self.size = size
+        self.image = expl_anim[self.size][0]
+        self.image.set_colorkey(BLACK)
+        self.rect = self.image.get_rect()
+        self.rect.center = center
+        self.frame = 0
+        self.frame_rate = 30
+        self.last_update = pygame.time.get_ticks()
+    
+    def update(self):
+        now = pygame.time.get_ticks()
+        if now - self.last_update >= self.frame_rate :
+            self.last_update = now
+            self.frame += 1
+            if self.frame == len(expl_anim[self.size]) :
+                self.kill()
+            else :
+                self.image = expl_anim[self.size][self.frame]
+                self.image.set_colorkey(BLACK)
+                center = self.rect.center
+                self.rect = self.image.get_rect()
+                self.rect.center = center
+            
+#add the class that is set to the group 
+All_Sprites = pygame.sprite.Group()
+rocks = pygame.sprite.Group()
+bullets = pygame.sprite.Group()
+treasures = pygame.sprite.Group()
+player = Player()
+All_Sprites.add(player)
+
+#the loop of the game
+show_init = True
+running = True
+while running :
+    if show_init :
+        close = draw_init()
+        if close :
+            break
+        show_init = False
+        #add the class that is set to the group 
+        All_Sprites = pygame.sprite.Group()
+        rocks = pygame.sprite.Group()
+        bullets = pygame.sprite.Group()
+        treasures = pygame.sprite.Group()
+        player = Player()
+        All_Sprites.add(player)
+        for i in range(12) :
+            new_rock()
+        score = 0
+    
+    #10 frames per second
+    clock.tick(FPS)
+    
+    #get the input
+    for event in pygame.event.get() :
+        if event.type == pygame.QUIT :
+            running = False
+        elif event.type == pygame.KEYDOWN : 
+            if event.key == pygame.K_SPACE :
+                player.shoot()
+    
+    #update the game
+    All_Sprites.update()
+    
+    hits = pygame.sprite.groupcollide(rocks, bullets, True, True)
+    for hit in hits :
+        Expl = Explosion(hit.rect.center, 'large')
+        All_Sprites.add(Expl)
+        random.choice(expl_sounds).play()
+        score += hit.radius
+        if random.random() > .7 :
+            tre = Treasure(hit.rect.center)
+            All_Sprites.add(tre)
+            treasures.add(tre)
+        new_rock()
+    
+    hits = pygame.sprite.spritecollide(player, treasures, True)
+    for hit in hits :
+        if hit.type == 'shield' :
+            shield_sound.play()
+            player.HP += 15
+            if player.HP > 100 :
+                player.HP = 100
+        elif hit.type == 'gun' :
+            gun_sound.play()
+            player.gunup()
+    
+    hits = pygame.sprite.spritecollide(player, rocks, True, pygame.sprite.collide_circle)
+    for hit in hits :
+        Expl = Explosion(hit.rect.center, 'small')
+        All_Sprites.add(Expl)
+        new_rock()
+        player.HP -= hit.radius * 1.2
+        if player.HP <= 0 :
+            Death = Explosion(hit.rect.center, 'player')
+            All_Sprites.add(Death)
+            death_sound.play()
+            player.lives -= 1
+            player.HP = 100
+            player.hide()
+            
+    if player.lives == 0 and not(Death.alive()) :
+        show_init = True
+    
+    #display the game
+    window.fill(BLACK)
+    window.blit(background_image, (0, 0))
+    All_Sprites.draw(window)
+    draw_text(window, font_name1,f'Score : {str(score)}', 27, WIDTH / 2, 12)
+    draw_HP(window, player.HP, 10, 15)
+    draw_lives(window, player.lives, player_mini_image, WIDTH - 150, 15)
+    pygame.display.update()
+
+
+
+#uninitialize the game
+pygame.quit()            
